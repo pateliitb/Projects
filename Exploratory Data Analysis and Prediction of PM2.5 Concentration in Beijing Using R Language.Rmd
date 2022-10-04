@@ -1,0 +1,478 @@
+---
+title: "R_Project_File"
+author: "gautam"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# 1.Goal of the project
+
+Throughout this project, I will be doing an Exploratory Data Analysis of the PM2.5 Dataset of Bejing, China.
+
+
+# 2.Loading the Main packeges
+
+I will mainly be using the following packages:
+
+```{r}
+library(dplyr) #To work with datasets
+library(moments) #To calculate various values of descriptive sattistics 
+```
+
+# 3.Importing And Cleaning Dataset
+
+First, I need to import My dataset. The dataset I will be using can be found online at: https://archive.ics.uci.edu/ml/datasets/Beijing+PM2.5+Data#
+
+It was built from public data made available by Song Xi Chen, csx '@' gsm.pku.edu.cn, Guanghua School of Management, Center for Statistical Science, Peking University and
+This hourly data set contains the PM2.5 data of US Embassy in Beijing. Meanwhile, meteorological data from Beijing Capital International Airport are also included,for each hour between Jan 1st, 2010 to Dec 31st, 2014. It contains 43824 observations.
+
+```{r}
+#loading the dataset file
+library(readr)
+PM2.5_data <- read.csv("C:/Users/gauta/Downloads/PRSA_data_2010.1.1-2014.12.31-1.csv", header=T)
+head(PM2.5_data)
+#View(PM2.5_data)
+```
+
+### Description of the dataset
+
+    No   : row number
+    year : year of data in this row
+    month: month of data in this row
+    day  : day of data in this row
+    hour : hour of data in this row
+    PM2.5: PM2.5 concentration (ug/m^3)
+    TEMP : temperature (degree Celsius)
+    PRES : pressure (hPa)
+    DEWP : dew point temperature (degree Celsius)
+    Cbwd : Represents the Combined wind direction 
+    Iws  : Represents the Cumulated wind speed in (m/s)
+    Is   : Represents the Cumulated hours of snow
+    Ir	 : Represents the Cumulated hours of rain
+
+###  Duplicate and missing Values: 
+
+```{r}
+anyDuplicated(PM2.5_data)
+
+
+sum(is.na(PM2.5_data))
+# Now since our dataset contains the NA values and in small percentage with respect to the whole data(<5%) , therefore we have to remove those NA values instead of impute that NA values as follows:
+PM2.5_data <- na.omit(PM2.5_data)
+head(PM2.5_data)
+##Creating the date column
+
+PM2.5_data$date<-as.Date(with(PM2.5_data,paste(PM2.5_data$year,PM2.5_data$month,PM2.5_data$day,sep="-")),"%Y-%m-%d")
+
+##
+##adding the season column
+season <- vector('character', nrow(PM2.5_data))
+season[PM2.5_data$month == 3 | PM2.5_data$month == 4 | PM2.5_data$month == 5] <- 'spring'
+season[PM2.5_data$month == 6 | PM2.5_data$month == 7 | PM2.5_data$month == 8] <- 'summer'
+season[PM2.5_data$month == 9 | PM2.5_data$month == 10 | PM2.5_data$month == 11] <- 'fall'
+season[PM2.5_data$month == 12 | PM2.5_data$month == 1 | PM2.5_data$month == 2] <- 'winter'
+PM2.5_data <- cbind(PM2.5_data, season)
+```
+
+
+# 4.Exploring The Dataset
+
+
+Before we start fitting a machine learning model on the data, we need to know much about the data by performing an Exploratory Data Analysis to gain insight from it. EDA is simply describing the data by means of visualization. It involves asking questions about the data and answering them with the help of charts/graphs (graphical representation of the data). In this process, we will try to study the behavoir of the amount of pollutant (PM2.5 concentration) in the air and the relationship between other features. Below are some of the questions we will try to answer by analyzing the data, to know more about our dependent and independent variables:
+
+    .what pattern does the amount of PM2.5 concentration in the air recorded in an hour follow for a daily time        period ?
+    .In which month does the amount of PM2.5 contained in the air rises ?
+    .At what time of the day do we expect the amount of PM2.5 concentration in the air to be high ?
+    .In which direction does polluted air/wind mostly move ?
+    .How do the other environmental factors affect the amount of PM2.5 concentration in the air ?
+
+We now have our questions so let's just dive into our data and start finding and interpreting some results. But since we are going to take averages of the dependent variable, we should know the distribtution of the data before we do take averages.
+So lets start with the summary of the whole dataset as follows:
+
+## 4.1 Summary Of the dataset PM2.5
+```{r}
+summary(PM2.5_data)
+```
+## 4.2 Plotting the histogram-plot of the continious variables
+
+### 4.2.1.For Column 6(PM2.5)
+
+```{r}
+library(moments)
+par(mfrow=c(1,2))
+hist((PM2.5_data$pm2.5),col=rainbow(14),xlab = "Concentration of PM2.5(ug/m^3)",ylab = "Frequency",main = "Histogram-plot of the PM2.5",breaks = 30)
+hist(log(1+(PM2.5_data$pm2.5)),col=rainbow(14),xlab = "log(1+pm2.5)",ylab = "Frequency",main = "Histogram-plot of the PM2.5")
+boxplot(PM2.5_data$pm2.5,col = "yellow",main="Box-plot the PM2.5 variable",ylab="PM2.5(ug/m^3)")
+boxplot(log(1+PM2.5_data$pm2.5),col = "yellow",main="Box-plot the log(1+PM2.5)",ylab="log(1+pm2.5)")
+#From the bar-plot of PM2.5 variable it can concluded that the distribution of PM2.5 is positively skewed, with a skewness of:
+skewness(PM2.5_data$pm2.5)
+# Also from the box-plot it is clear that we ha too many out-liers, therefore i have transformed the variable PM2.5 to log(1+PM2.5) to reduce the number of outlier and from the box-plot of log(1+PM2.5) it can be seen that transformed PM2.5 variable has very less number of out-liers.
+# Kurtosis of the Pm2.5 Variable
+kurtosis(PM2.5_data$pm2.5)
+
+
+```
+## Let us plot the PM2.5 variable with repest to time:
+
+
+### a.With repect to Year
+
+```{r}
+library(ggplot2)
+ggplot(PM2.5_data, aes(x = date, y = pm2.5)) +
+  geom_line(alpha = 0.58, color = "#00AFBB") + 
+  geom_hline(yintercept=mean(PM2.5_data$pm2.5), 
+             color="#FC4E07", 
+             linetype = 1) +
+  theme_minimal() +
+  labs(title = "Time VS PM2.5 concentration (All Time Average in Red)", x = "Time", y = "PM2.5 concentration(ug/m^3)")
+par(bg="skyblue")
+ty=aggregate(x= PM2.5_data$pm2.5,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$year),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$year,PM2.5_data$pm2.5,col="red",xlab = "Year",ylab = "PM2.5 concentration",main = "Yearly variation of PM2.5 concentration (Yearly Average in Green)",pch=20)
+lines(ty$Group.1,ty$x,col="green")
+```
+
+### b.With repect to Month
+
+```{r}
+par(bg="skyblue")
+t=aggregate(x= PM2.5_data$pm2.5,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$month),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$month,PM2.5_data$pm2.5,col="blue",xlab = "Month",ylab = "PM2.5 concentration",main = "Monthly variation of PM2.5 concentration (Monthly Average in red)")
+lines(t$Group.1,t$x,col="red")
+
+```
+
+### In which month does the amount of PM2.5 contained in the air rises ?
+
+
+```{r}
+barplot(t$x,names.arg = c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"),col = rainbow(15),main = "Monthly average of the PM2.5 concentration(ug/m^3) in air ",ylab = "Average PM2.5 concentration(ug/m^3)",horiz = FALSE)
+```
+
+
+### c.With repect to daily
+
+```{r}
+par(bg="skyblue")
+t=aggregate(x= PM2.5_data$pm2.5,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$day),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$day,PM2.5_data$pm2.5,col="green",xlab = "Day",ylab = "PM2.5 concentration",main = "Daily variation of PM2.5 concentration (Daily Average in blue)")
+lines(t$Group.1,t$x,col="blue")
+
+barplot(t$x,col = "maroon",main = "Daily average of the PM2.5 concentration(ug/m^3) in air ",xlab = "Average PM2.5 concentration(ug/m^3)",ylab = "Day of a Month",names.arg = c(1:31),horiz = TRUE)
+```
+
+
+### d.With repect to hour
+
+```{r}
+par(bg="skyblue")
+t=aggregate(x= PM2.5_data$pm2.5,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$hour),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$hour,PM2.5_data$pm2.5,col="yellow",xlab = "Hour",ylab = "PM2.5 concentration",main = "Hourly variation of PM2.5 concentration (Hourly Average in blue)")
+lines(t$Group.1,t$x,col="blue")
+```
+
+### At what time of the day do we expect the amount of PM2.5 concentration in the air to be high ?
+
+```{r}
+barplot(t$x,col = "blue",main = "Hourly average of the PM2.5 concentration(ug/m^3) in air ",xlab = "Average PM2.5 concentration(ug/m^3)",ylab = "Hour of a day",names.arg = c(1:24),horiz = TRUE)
+```
+
+
+## e.Let’s take a look at annual average PM2.5 concentration:
+
+```{r}
+par(bg="skyblue")
+plot(ty$Group.1,ty$x,col="blue","l",xlab = "Year",ylab = "Annual average PM2.5 concentration",main = "annual average PM2.5 concentration")
+```
+
+## f.In which direction does polluted air/wind mostly move ?
+```{r}
+t=aggregate(x= PM2.5_data$pm2.5,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$cbwd),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+barplot(t$x,col = rainbow(4),main = "Variation of average PM2.5 concentration(ug/m^3) in air with Wind-Direction ",xlab = "Combined wind Direction",ylab = "average PM2.5 concentration(ug/m^3)",names.arg = c("cv","NE","NW","SE"),horiz = FALSE)
+```
+
+## g.Effect of wind speed on PM2.5 concentration
+
+```{r}
+library(tidyverse)
+t=PM2.5_data %>%
+  pull(Iws) %>%
+  cut(breaks=c(-Inf,11,28,38,61,88,117,Inf), 
+      labels=c("Light wind", "Gentle-moderate", "Fresh-wind","strong-wind","Gale","Whole-gale","Hurricane"))
+
+PM2.5_data <- cbind(PM2.5_data, t)
+ts=aggregate(x= PM2.5_data$pm2.5,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$t),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+barplot(ts$x,col = rainbow(8),main = "Variation of average PM2.5 concentration(ug/m^3) in air with Wind-Speed ",ylab = "average PM2.5 concentration(ug/m^3)",names.arg = c("Light wind", "moderate", "Fresh-wind","strong-wind","Gale","Whole-gale","Hurricane"),horiz = FALSE,las=2,legend=T,ylim = c(0,120))
+
+```
+
+## h.In which seson does the PM2.5 concentration is high?
+```{r}
+t=aggregate(x= PM2.5_data$pm2.5,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$season),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+barplot(t$x,col = rainbow(15),main = "Variation of average PM2.5 concentration(ug/m^3) in air with Sesons ",xlab = "seson",ylab = "average PM2.5 concentration(ug/m^3)",names.arg = c("fall","spring","summer","winter"),horiz = FALSE,ylim = c(0,120))
+```
+
+## 4.2.2.for column 7(DWEP)
+
+```{r}
+#since the variable DWEP(dew point in(â„ƒ))  is continuous variable therefore I am going to plot the histogram and box-plot:
+par(mfrow=c(1,2))
+hist(PM2.5_data$DEWP,col=c("red","green","blue"),xlab = "dew-point (â„ƒ)",ylab = "Frequency",main = "Histogram plot of DWEP",border = "yellow")
+boxplot(PM2.5_data$DEWP,ylab="dew-point (â„ƒ)",main="Box-plot of DWEP",col = "green")
+#summary
+summary(PM2.5_data$DEWP)
+skewness(PM2.5_data$DEWP)
+kurtosis(PM2.5_data$DEWP)
+##From the above histogram plot and box-plot of the variable DWEP(dew-point) it can be concluded that the variable DWEP does not follows any fixed distribution(but slightely negatively skewed) and from the box-plot we can concluded that the variable has no outliers.
+```
+
+## Let us plot the DWEP variable with repest to time:
+
+
+### a.With repect to Year
+
+```{r}
+par(bg="skyblue")
+dy=aggregate(x= PM2.5_data$DEWP,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$year),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$date,PM2.5_data$DEWP,col="red",xlab = "Year",ylab = "Dew point in (â„ƒ)",main = "Yearly variation of Dew point in (â„ƒ) (All time Average in blue)",pch=20)
+abline(h=mean(PM2.5_data$TEMP),col="blue")
+```
+
+
+### b.With repect to Month
+
+```{r}
+par(bg="skyblue")
+dm=aggregate(x= PM2.5_data$DEWP,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$month),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$month,PM2.5_data$DEWP,col="blue",pch=20,xlab = "Month",ylab = "Dew point in (â„ƒ)",main = "Monthly variation of Dew point in (â„ƒ) (Monthly Average in red)")
+lines(dm$Group.1,dm$x,col="red")
+barplot(dm$x,names.arg = c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"),col = rainbow(15),main = "Monthly average Dew Point in (â„ƒ) in air ",ylab = "Average Dew Point in (â„ƒ)",horiz = FALSE)
+```
+
+### c.With repect to daily
+```{r}
+par(bg="#FAF4B7")
+dd=aggregate(x= PM2.5_data$DEWP,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$day),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$day,PM2.5_data$DEWP,col="blue",xlab = "Day",ylab = "Dew point in (â„ƒ)",main = "Daily variation of  Dew point in (â„ƒ) (Daily Average in red)",pch=20)
+lines(dd$Group.1,dd$x,col="red")
+barplot(dd$x,col = "blue",main = "Daily average Dew Point in (â„ƒ) in air",xlab = "Average Dew Point in (â„ƒ) in air",ylab = "Day of a Month",names.arg = c(1:31),horiz = TRUE)
+```
+
+### d.With repect to hour
+
+```{r}
+par(bg="skyblue")
+dh=aggregate(x= PM2.5_data$DEWP,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$hour),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$hour,PM2.5_data$DEWP,col="blue",xlab = "Hour",ylab = "Dew point in (â„ƒ)",main = "Hourly variation of Dew point in (â„ƒ) (Hourly Average in red)")
+lines(dh$Group.1,dh$x,col="red")
+barplot(dh$x,col = "red",main = "Hourly Average Dew Point(â„ƒ) in air ",xlab = "Average Dew Point(â„ƒ) in air",ylab = "Hour of a day",names.arg = c(1:24),horiz = TRUE)
+```
+
+
+## e.Let’s take a look at annual average Dew point in (â„ƒ):
+
+```{r}
+par(bg="skyblue")
+plot(dy$Group.1,dy$x,col="blue","l",xlab = "Year",ylab = "Annual average Dew point in (â„ƒ)",main = "annual average Dew point in (â„ƒ)")
+```
+
+
+## 4.2.3.For Column 8(TEMP)
+
+```{r}
+
+#par(mfrow=c(1,2))
+hist((PM2.5_data$TEMP),col="blue",xlab = "temperature (â„ƒ)",ylab = "Frequency",main = "Histogram plot of variable TEMP",border = "red",breaks = 30)
+##boxplot 0f TEMP
+boxplot(PM2.5_data$TEMP,col = "yellow",main="Box-plot the TEMP variable",ylab="temperature (â„ƒ)")
+
+#summary
+summary(PM2.5_data$TEMP)
+skewness(PM2.5_data$TEMP)
+kurtosis(PM2.5_data$TEMP)
+##From the above histogram plot and box-plot of the variable TEMP(Temperature in (â„ƒ)) it can be concluded that the variable TEMP does not follows any fixed distribution(but slightely negatively skewed)and slightly  leptokurtic and from the box-plot we can concluded that the variable has no outliers.
+
+```
+
+## Let us plot the TEMP variable with repest to time:
+
+### a.With repect to Year
+
+```{r}
+plot(PM2.5_data$date,PM2.5_data$TEMP,col="blue",pch=20,xlab = "Year",ylab = "Temperature in (â„ƒ)",main = "Yearly variation of Temperature in (â„ƒ) (Yearly Average in red)")
+abline(h=mean(PM2.5_data$TEMP),col="red")
+```
+
+### b.With repect to Month
+
+```{r}
+par(bg="skyblue")
+tm=aggregate(x= PM2.5_data$TEMP,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$month),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$month,PM2.5_data$TEMP,col="red",pch=18,xlab = "Month",ylab = "Temperature in (â„ƒ)",main = "Monthly variation of Temperature in (â„ƒ) (Monthly Average in blue)")
+lines(tm$Group.1,tm$x,col="blue")
+
+```
+
+### c.With repect to day
+```{r}
+par(bg="#FAF4B7")
+td=aggregate(x= PM2.5_data$TEMP,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$day),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$day,PM2.5_data$TEMP,col="green",pch=20,xlab = "Day",ylab = "Temperature in (â„ƒ)",main = "Daily variation of  Temperature in (â„ƒ) (Daily Average in red)")
+lines(td$Group.1,td$x,col="red")
+```
+
+### d.With repect to hour
+
+```{r}
+par(bg="#F3E0B5")
+th=aggregate(x= PM2.5_data$TEMP,     
+            
+         # Specify group indicator
+         by = list(PM2.5_data$hour),      
+            
+         # Specify function (i.e. mean)
+         FUN = mean)
+plot(PM2.5_data$hour,PM2.5_data$TEMP,col="green",pch=20,xlab = "Hour",ylab = "Temperature in (â„ƒ)",main = "Hourly variation of Temperature in (â„ƒ) (Hourly Average in red)")
+lines(th$Group.1,th$x,col="red")
+```
+
+
+## e.Let’s take a look at annual average Temperature in (â„ƒ):
+
+```{r}
+par(bg="skyblue")
+plot(ty$Group.1,ty$x,col="red","l",xlab = "Year",ylab = "Annual average Temperature in (â„ƒ)",main = "annual average Temperature in (â„ƒ)")
+```
+
+## 4.2.3.For Column 9(PRES)
+```{r}
+par(mfrow=c(1,2))
+hist((PM2.5_data$PRES),col="skyblue",xlab = "Pressure",ylab = "Frequency",main = "Frequency Histogram plot of PRES",border = "red",breaks = 20)
+hist((PM2.5_data$PRES),col="skyblue",xlab = "Pressure",ylab = "Pobability Density",main = "Density+Histogram plot of PRES",border = "red",probability = TRUE,ylim = c(0,0.04),breaks = 20)
+x=seq(990,1050,by=1)
+curve(dnorm(x,mean = mean(PM2.5_data$PRES),sd=sd(PM2.5_data$PRES)),add = TRUE,col="black")
+##boxplot 0f TEMP
+par(mfrow=c(1,1))
+boxplot(PM2.5_data$TEMP,col = "red",main="Box-plot the TEMP variable",ylab="temperature (â„ƒ)")
+
+#summary
+summary(PM2.5_data$PRES)
+skewness(PM2.5_data$PRES)
+kurtosis(PM2.5_data$PRES)
+##From the above histogram plot and box-plot of the variable PRES(pressure) it can be concluded that the variable PRES follows approximately normal distribution with slightly Platykuratic and from the box-plot we can concluded that the variable has no outliers.
+
+```
+
+## 4.3 How do the other environmental factors affect the amount of PM2.5 concentration in the air ? (Heatmap of correlation matrix)
+
+```{r}
+ 
+# creating correlation matrix
+df1=data.frame(PM2.5_data[,c(6,7,8,9,11,12,13)])
+corr_mat <- round(cor(df1),2)
+library(reshape2)
+ 
+ 
+# reduce the size of correlation matrix
+melted_corr_mat <- melt(corr_mat)
+ 
+# plotting the correlation heatmap
+library(ggplot2)
+ggplot(data = melted_corr_mat, aes(x=Var1, y=Var2,
+                                   fill=value)) +
+geom_tile() +
+geom_text(aes(Var2, Var1, label = value),
+          color = "red", size = 4)
+
+```
+
+
+## Predicticting the PM2.5 concentration
+
+d=2912-117
+p1=d/2912
+p1
+
+
+
